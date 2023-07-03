@@ -6,10 +6,16 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 public  class LLModel implements AutoCloseable {
@@ -231,11 +237,36 @@ public  class LLModel implements AutoCloseable {
      * @return String The complete generated text
      */
     public String generate(String prompt, GenerationConfig generationConfig, boolean streamToStdOut) {
+        return generate(prompt, generationConfig, System.out, streamToStdOut);
+    }
+
+    /**
+     * Generate text after the prompt
+     *
+     * @param prompt The text prompt to complete
+     * @param generationConfig What generation settings to use while generating text
+     * @param printStream Stream where the generation will be printed to. Useful for troubleshooting.
+     * @return String The complete generated text
+     */
+    public String generate(String prompt, GenerationConfig generationConfig, PrintStream printStream) {
+        return generate(prompt, generationConfig, printStream, true);
+    }
+
+    /**
+     * Generate text after the prompt
+     *
+     * @param prompt The text prompt to complete
+     * @param generationConfig What generation settings to use while generating text
+     * @param stream Stream where the generation will be printed to. Useful for troubleshooting.
+     * @param enableStreaming iff {@code true} the generated text will be written to the given stream
+     * @return String The complete generated text
+     */
+    public String generate(String prompt, GenerationConfig generationConfig, PrintStream stream, boolean enableStreaming) {
 
         ByteArrayOutputStream bufferingForStdOutStream = new ByteArrayOutputStream();
         ByteArrayOutputStream bufferingForWholeGeneration = new ByteArrayOutputStream();
 
-        LLModelLibrary.ResponseCallback responseCallback = getResponseCallback(streamToStdOut, bufferingForStdOutStream, bufferingForWholeGeneration);
+        LLModelLibrary.ResponseCallback responseCallback = getResponseCallback(enableStreaming, stream, bufferingForStdOutStream, bufferingForWholeGeneration);
 
         library.llmodel_prompt(this.model,
                 prompt,
@@ -258,12 +289,18 @@ public  class LLModel implements AutoCloseable {
     /**
      * Callback method to be used by prompt method as text is generated.
      *
-     * @param streamToStdOut Should send generated text to standard out.
+     * @param enableStreaming Should send generated text to standard out.
+     * @param stream the stream to which the generation is printed
      * @param bufferingForStdOutStream Output stream used for buffering bytes for standard output.
      * @param bufferingForWholeGeneration Output stream used for buffering a complete generation.
      * @return LLModelLibrary.ResponseCallback lambda function that is invoked by response callback.
      */
-    static LLModelLibrary.ResponseCallback getResponseCallback(boolean streamToStdOut, ByteArrayOutputStream bufferingForStdOutStream, ByteArrayOutputStream bufferingForWholeGeneration) {
+    static LLModelLibrary.ResponseCallback getResponseCallback(
+        final boolean enableStreaming,
+        final PrintStream stream,
+        ByteArrayOutputStream bufferingForStdOutStream,
+        ByteArrayOutputStream bufferingForWholeGeneration
+    ) {
         return (int tokenID, Pointer response) -> {
 
             if(LLModel.OUTPUT_DEBUG)
@@ -288,13 +325,13 @@ public  class LLModel implements AutoCloseable {
                 len++;
                 if(nextByte!=0) {
                     bufferingForWholeGeneration.write(nextByte);
-                    if(streamToStdOut){
+                    if(enableStreaming){
                         bufferingForStdOutStream.write(nextByte);
                         // Test if Buffer is UTF8 valid string.
                         byte[] currentBytes = bufferingForStdOutStream.toByteArray();
                         String validString = Util.getValidUtf8(currentBytes);
                         if(validString!=null){ // is valid string
-                            System.out.print(validString);
+                            stream.print(validString);
                             // reset the buffer for next utf8 sequence to buffer
                             bufferingForStdOutStream.reset();
                         }
